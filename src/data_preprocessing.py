@@ -72,6 +72,7 @@ def remove_irrelevant_columns(df):
     These columns are either:
     - Identifiers (Flow ID, Source/Destination IP): Unique per session but not predictive
     - Temporal data (Timestamp): May cause data leakage or temporal bias
+    - Local network metadata columns that don't aid classification
     
     Args:
         df (pd.DataFrame): DataFrame with all original columns
@@ -81,7 +82,14 @@ def remove_irrelevant_columns(df):
     """
     # Define columns that are not useful for the machine learning model
     # These are metadata/identifiers that don't help predict intrusion
-    columns_to_drop = ['Flow ID', 'Source IP', 'Destination IP', 'Timestamp']
+    # Based on NSL-KDD and CIC-IDS2017/2018 dataset structures
+    columns_to_drop = [
+        'Flow ID', 'Source IP', 'Destination IP', 'Timestamp',
+        'Src IP dec', 'Dst IP dec', 'Src Port', 'Dst Port',
+        'Local', 'Local_1', 'Local_2', 'Local_3', 'Local_4', 'Local_5',
+        'Local_6', 'Local_7', 'Local_8', 'Local_9', 'Local_10', 'Local_11',
+        'Local_12', 'Local_13', 'Local_14', 'Attempted Category'
+    ]
     
     # Safely drop columns only if they exist in the DataFrame
     # Different CSV files may have different column names
@@ -94,29 +102,30 @@ def remove_irrelevant_columns(df):
 
 def encode_labels(df):
     """
-    Convert categorical target labels to numerical values.
+    Handle target labels (keep as categorical strings or encode if needed).
     
-    Machine learning algorithms work with numerical data. This function converts
-    text labels (e.g., 'Benign', 'DoS', 'DDoS') into numeric format that models can understand.
+    Machine learning algorithms can work with either categorical strings or numeric labels.
+    For tree-based models like Random Forest, categorical labels work fine.
+    For neural networks, numeric encoding is required.
     
-    The LabelEncoder automatically assigns numbers starting from 0 in alphabetical order.
-    It also stores the mapping so labels can be converted back to text later.
+    This function keeps labels as strings but provides an encoder for conversion if needed.
     
     Args:
         df (pd.DataFrame): DataFrame containing 'Label' column with text values
         
     Returns:
-        tuple: (processed DataFrame with encoded labels, LabelEncoder object for later use)
+        tuple: (DataFrame, LabelEncoder object for future use if needed)
     """
     # Create a LabelEncoder to map text labels to integers
-    # E.g., 'Benign' -> 0, 'DDoS' -> 1, 'DoS' -> 2, 'Probe' -> 3, 'R2L' -> 4, 'U2R' -> 5
+    # Though we don't apply it by default, it's useful for algorithms that need numeric labels
     le = LabelEncoder()
     
-    # Fit and transform the Label column - converts text to numbers
-    df['Label'] = le.fit_transform(df['Label'])
+    # Fit the encoder to the labels (but don't transform them yet)
+    # This stores the mapping from text labels to numbers
+    le.fit(df['Label'])
     
-    # Return both the modified DataFrame and the encoder for future use
-    # The encoder can be used to convert predictions back to class names
+    # Return the DataFrame unchanged and the encoder for later use
+    # Tree-based models like Random Forest handle string labels natively
     return df, le
 
 
@@ -135,7 +144,7 @@ def scale_features(df):
         df (pd.DataFrame): DataFrame after encoding, with features and Label column
         
     Returns:
-        tuple: (scaled features array, label array, StandardScaler object)
+        tuple: (scaled features array, label series, StandardScaler object)
     """
     # Separate features (X) from target label (y)
     # Drop the 'Label' column to get only the input features
@@ -149,9 +158,10 @@ def scale_features(df):
     # This centers features around 0 and scales them to unit variance
     X_scaled = scaler.fit_transform(X)
 
-    # Return the scaled features, labels, and the scaler object
+    # Return the scaled features, labels (as pandas Series), and the scaler object
     # The scaler is saved to normalize new data with the same statistics
-    return X_scaled, y, scaler
+    # Labels are kept as Series/values in their original categorical form
+    return X_scaled, y.values, scaler
 
 
 def preprocess_pipeline(path):

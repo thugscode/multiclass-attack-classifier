@@ -216,7 +216,7 @@ def main():
         
         # Features info
         st.subheader("📋 Expected Features")
-        st.write("The system expects 87 network features including:")
+        st.write("The system expects 82 network features including:")
         st.write("- Protocol info (TCP/UDP flags, lengths)")
         st.write("- Flow statistics (duration, bytes, packets)")
         st.write("- Window sizes and urgent flags")
@@ -240,11 +240,11 @@ def main():
         if input_method == "Manual Entry":
             st.subheader("Enter Network Features")
             
-            # Create 87 input fields
+            # Create 82 input fields
             feature_values = []
             cols = st.columns(5)
             
-            for i in range(87):
+            for i in range(82):
                 col_idx = i % 5
                 with cols[col_idx]:
                     value = st.number_input(
@@ -270,13 +270,13 @@ def main():
             st.info("Using a sample with mostly zeros (all features normalized)")
             
             # Create demo sample
-            demo_sample = [0.0] * 87
+            demo_sample = [0.0] * 82
             demo_sample[0] = 1.5  # Add some variation
             demo_sample[1] = 2.3
             demo_sample[2] = 0.8
             
             st.write("Sample features:")
-            st.code(str(demo_sample[:10]) + " ... (87 features total)")
+            st.code(str(demo_sample[:10]) + " ... (82 features total)")
             
             if st.button("🔍 Predict on Demo Sample"):
                 with st.spinner("Making prediction..."):
@@ -312,11 +312,11 @@ def main():
             with st.spinner("Generating samples and making predictions..."):
                 # Generate samples
                 if sample_type == "Random (varying features)":
-                    samples = np.random.randn(num_samples, 87).tolist()
+                    samples = np.random.randn(num_samples, 82).tolist()
                 elif sample_type == "Zeros":
-                    samples = np.zeros((num_samples, 87)).tolist()
+                    samples = np.zeros((num_samples, 82)).tolist()
                 else:  # Ones
-                    samples = np.ones((num_samples, 87)).tolist()
+                    samples = np.ones((num_samples, 82)).tolist()
                 
                 # Make predictions
                 result = predict_batch(samples)
@@ -363,7 +363,7 @@ def main():
         
         st.subheader("📊 Dataset Information")
         st.write("""
-        - **Features:** 87 network traffic characteristics
+        - **Features:** 82 network traffic characteristics
         - **Classes:** 6 (Benign, DoS, DDoS, Probe, R2L, U2R)
         - **Preprocessing:** StandardScaler normalization
         - **Train/Test Split:** 80/20 with stratification

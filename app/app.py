@@ -12,12 +12,12 @@ import os
 import sys
 import io
 from typing import List, Dict, Any
-import pickle
+import joblib
 
 # Add src path to import modules
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from predict import IntrusionDetectionPredictor
+from predict import load_model_and_scaler, predict_with_confidence, predict_batch, batch_prediction_from_csv
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -35,17 +35,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global predictor instance
-predictor = None
+# Global model and scaler instances
+model = None
+scaler = None
 
 # Pydantic models for request/response
 class PredictionRequest(BaseModel):
-    """Request model for single sample prediction - expects 87 network features"""
+    """Request model for single sample prediction - expects 82 network features"""
     features: List[float]
     
     class Config:
         example = {
-            "features": [1.0, 2.0, 3.0, 4.0, 5.0] + [0.0] * 82  # 87 features
+            "features": [1.0, 2.0, 3.0, 4.0, 5.0] + [0.0] * 77  # 82 features
         }
 
 class PredictionResponse(BaseModel):
@@ -61,8 +62,8 @@ class BatchPredictionRequest(BaseModel):
     class Config:
         example = {
             "samples": [
-                [1.0, 2.0, 3.0] + [0.0] * 84,
-                [2.0, 3.0, 4.0] + [0.0] * 84
+                [1.0, 2.0, 3.0] + [0.0] * 79,
+                [2.0, 3.0, 4.0] + [0.0] * 79
             ]
         }
 
@@ -81,74 +82,68 @@ class HealthResponse(BaseModel):
     encoder_loaded: bool
 
 
-# Startup event to initialize predictor
+# Startup event to initialize model and scaler
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the predictor with trained models and preprocessing objects"""
-    global predictor
+    """Load trained model and scaler from disk"""
+    global model, scaler
     try:
-        predictor = IntrusionDetectionPredictor(
-            models_folder='../models',
-            scaler_path='../data/processed/friday_scaler.pkl',
-            encoder_path='../data/processed/friday_label_encoder.pkl'
-        )
-        print("✓ Predictor initialized successfully")
+        model_path = '../models/random_forest_model.joblib'
+        scaler_path = '../models/feature_scaler.joblib'
+        model, scaler = load_model_and_scaler(model_path, scaler_path)
+        print("✓ Model and scaler loaded successfully")
     except Exception as e:
-        print(f"✗ Failed to initialize predictor: {e}")
-        predictor = None
+        print(f"✗ Failed to load model: {e}")
+        model = None
+        scaler = None
 
 
 # Health Check Endpoint
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Check if all models and preprocessing objects are loaded"""
-    if predictor is None:
-        raise HTTPException(status_code=503, detail="Predictor not initialized")
+    """Check if model and scaler are loaded"""
+    if model is None or scaler is None:
+        raise HTTPException(status_code=503, detail="Model or scaler not initialized")
     
     return HealthResponse(
         status="healthy",
-        models_loaded=len(predictor.models) if predictor.models else 0,
-        scaler_loaded=predictor.scaler is not None,
-        encoder_loaded=predictor.encoder is not None
+        models_loaded=1,
+        scaler_loaded=scaler is not None,
+        encoder_loaded=False
     )
 
 
 # Single Prediction Endpoint
 @app.post("/predict", response_model=PredictionResponse)
-async def predict_single(request: PredictionRequest):
+async def predict_single_sample(request: PredictionRequest):
     """
     Make a single prediction for network traffic classification
     
-    - **features**: List of 87 network features
+    - **features**: List of 82 network features
     
     Returns the attack type with confidence score
     """
-    if predictor is None:
-        raise HTTPException(status_code=503, detail="Predictor not initialized")
-    
-    # Validate input
-    if len(request.features) != 87:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Expected 87 features, got {len(request.features)}"
-        )
+    if model is None or scaler is None:
+        raise HTTPException(status_code=503, detail="Model or scaler not initialized")
     
     try:
         # Convert to numpy array
         sample = np.array(request.features).reshape(1, -1)
         
-        # Make prediction
-        prediction_result = predictor.predict_single_sample(sample[0])
+        # Make prediction with confidence
+        result = predict_with_confidence(model, scaler, sample)
         
-        # Extract confidence from probabilities if available
-        confidence = 0.0
-        if prediction_result['probabilities'] is not None:
-            confidence = float(np.max(prediction_result['probabilities']))
+        if isinstance(result, dict):
+            prediction_label = result['Predicted_Class']
+            confidence = result['Confidence']
+        else:
+            prediction_label = result.iloc[0]['Predicted_Class']
+            confidence = float(result.iloc[0]['Confidence'])
         
         return PredictionResponse(
-            prediction=prediction_result['prediction_label'],
-            confidence=confidence,
-            model_used=prediction_result['model']
+            prediction=str(prediction_label),
+            confidence=float(confidence),
+            model_used="Random Forest"
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -156,46 +151,38 @@ async def predict_single(request: PredictionRequest):
 
 # Batch Prediction Endpoint
 @app.post("/predict-batch", response_model=BatchPredictionResponse)
-async def predict_batch(request: BatchPredictionRequest):
+async def predict_batch_samples(request: BatchPredictionRequest):
     """
     Make batch predictions for multiple network traffic samples
     
-    - **samples**: List of samples, each with 87 network features
+    - **samples**: List of samples, each with 82 network features
     
     Returns predictions for all samples with statistics
     """
-    if predictor is None:
-        raise HTTPException(status_code=503, detail="Predictor not initialized")
+    if model is None or scaler is None:
+        raise HTTPException(status_code=503, detail="Model or scaler not initialized")
     
     if len(request.samples) == 0:
         raise HTTPException(status_code=400, detail="No samples provided")
     
     try:
-        # Validate all samples have correct feature count
-        for i, sample in enumerate(request.samples):
-            if len(sample) != 87:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Sample {i}: Expected 87 features, got {len(sample)}"
-                )
-        
         # Convert to numpy array
         X = np.array(request.samples)
         
         # Make batch predictions
-        batch_result = predictor.predict_batch(X)
+        results = predict_batch(model, scaler, X)
         
         # Format predictions as list of dicts
         predictions_list = []
-        for i, label in enumerate(batch_result['predictions_labels']):
+        for i, label in enumerate(results):
             predictions_list.append({
                 'sample_index': i,
-                'prediction': label,
-                'confidence': 0.0  # Confidence calculation would require probabilities per sample
+                'prediction': str(label),
+                'confidence': 0.0
             })
         
         # Count attack types
-        benign_count = sum(1 for p in predictions_list if p['prediction'] == 'Benign')
+        benign_count = sum(1 for p in predictions_list if 'Benign' in p['prediction'] or p['prediction'].lower() == 'benign')
         attack_count = len(predictions_list) - benign_count
         
         return BatchPredictionResponse(
@@ -204,8 +191,6 @@ async def predict_batch(request: BatchPredictionRequest):
             benign_count=benign_count,
             attack_count=attack_count
         )
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -216,42 +201,35 @@ async def predict_from_csv(file: UploadFile = File(...)):
     """
     Upload a CSV file with network traffic data and get predictions
     
-    - **file**: CSV file with 87 columns (network features)
+    - **file**: CSV file with 82 columns (network features)
     
     Returns predictions for all rows in the CSV
     """
-    if predictor is None:
-        raise HTTPException(status_code=503, detail="Predictor not initialized")
+    if model is None or scaler is None:
+        raise HTTPException(status_code=503, detail="Model or scaler not initialized")
     
     try:
         # Read CSV file
         contents = await file.read()
         df = pd.read_csv(io.StringIO(contents.decode("utf8")))
         
-        # Validate feature count
-        if df.shape[1] < 87:
-            raise HTTPException(
-                status_code=400,
-                detail=f"CSV has {df.shape[1]} columns, expected at least 87 features"
-            )
-        
         # Extract first 87 columns as features
-        X = df.iloc[:, :87].values
+        X = df.iloc[:, :82].values if df.shape[1] >= 82 else df.values
         
         # Make predictions
-        batch_result = predictor.predict_batch(X)
+        results = predict_batch(model, scaler, X)
         
         # Format predictions as list of dicts
         predictions_list = []
-        for i, label in enumerate(batch_result['predictions_labels']):
+        for i, label in enumerate(results):
             predictions_list.append({
                 'row_index': i,
-                'prediction': label,
+                'prediction': str(label),
                 'confidence': 0.0
             })
         
         # Count attack types
-        benign_count = sum(1 for p in predictions_list if p['prediction'] == 'Benign')
+        benign_count = sum(1 for p in predictions_list if 'Benign' in p['prediction'])
         attack_count = len(predictions_list) - benign_count
         
         return {
@@ -261,8 +239,6 @@ async def predict_from_csv(file: UploadFile = File(...)):
             "attack_count": attack_count,
             "predictions": predictions_list
         }
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing CSV: {str(e)}")
 
@@ -271,25 +247,24 @@ async def predict_from_csv(file: UploadFile = File(...)):
 @app.get("/models/compare")
 async def compare_models():
     """
-    Get information about all available models
+    Get information about the loaded model
     
-    Returns details about each trained model's performance
+    Returns details about the trained model
     """
-    if predictor is None:
-        raise HTTPException(status_code=503, detail="Predictor not initialized")
-    
-    if not predictor.models:
-        raise HTTPException(status_code=500, detail="No models loaded")
+    if model is None:
+        raise HTTPException(status_code=500, detail="Model not loaded")
     
     return {
-        "models_available": list(predictor.models.keys()),
-        "total_models": len(predictor.models),
+        "models_available": ["Random Forest"],
+        "total_models": 1,
         "models": [
             {
-                "name": name,
-                "type": type(model).__name__
+                "name": "Random Forest",
+                "type": type(model).__name__,
+                "n_estimators": getattr(model, 'n_estimators', 'N/A'),
+                "n_features": getattr(model, 'n_features_in_', 'N/A'),
+                "n_classes": len(getattr(model, 'classes_', []))
             }
-            for name, model in predictor.models.items()
         ]
     }
 
@@ -299,8 +274,8 @@ async def compare_models():
 async def get_features_info():
     """Get information about expected network features"""
     return {
-        "total_features": 87,
-        "feature_description": "Network traffic features extracted from flow data",
+        "total_features": 82,
+        "feature_description": "Network traffic features extracted from flow data (after removing irrelevant columns)",
         "classes": ["Benign", "DoS", "DDoS", "Probe", "R2L", "U2R"],
         "preprocessing": {
             "scaler": "StandardScaler (Z-score normalization)",

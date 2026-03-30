@@ -1,0 +1,39 @@
+======================================================================
+RANDOM FOREST MODEL EVALUATION REPORT
+======================================================================
+
+MODEL INFORMATION
+----------------------------------------------------------------------
+Model Type:              Random Forest Classifier
+Number of Trees:         200
+Max Depth:               25
+Number of Features:      82
+Number of Classes:       1
+Classes:                 BENIGN
+
+PERFORMANCE METRICS
+----------------------------------------------------------------------
+Accuracy:                1.0000 (100.00%)
+Precision (Weighted):    1.0000
+Recall (Weighted):       1.0000
+F1-Score (Weighted):     1.0000
+F1-Score (Macro):        1.0000
+
+CLASSIFICATION REPORT
+----------------------------------------------------------------------
+              precision    recall  f1-score   support
+
+      BENIGN       1.00      1.00      1.00    371617
+
+    accuracy                           1.00    371617
+   macro avg       1.00      1.00      1.00    371617
+weighted avg       1.00      1.00      1.00    371617
+
+
+CONFUSION MATRIX
+----------------------------------------------------------------------
+Shape: (1, 1)
+Diagonal sum (correct predictions): 371617
+Total predictions: 371617
+
+======================================================================

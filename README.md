@@ -6,7 +6,7 @@ A machine learning-based Network Intrusion Detection System that classifies netw
 
 This project implements:
 - **Data Preprocessing**: Clean and normalize raw network traffic data from CSV files
-- **Model Training**: Train 4 different ML algorithms (Logistic Regression, Random Forest, SVM, Naive Bayes)
+- **Model Training**: Train Random Forest classifier for multi-class attack detection
 - **Model Evaluation**: Comprehensive performance analysis with multiple metrics
 - **Inference Pipeline**: Make predictions on new network traffic
 - **Web API**: FastAPI REST endpoints for programmatic access
@@ -14,14 +14,13 @@ This project implements:
 
 ## Dataset
 
-### CICIDS-2017 Dataset
-This project uses the **CICIDS-2017** (Canadian Institute for Cybersecurity Intrusion Detection Evaluation Dataset) dataset, which is one of the most comprehensive and realistic network intrusion detection datasets available. 
+### Network Traffic Data
+This project uses network traffic datasets with daily captures, including both benign and attack traffic.
 
 **Dataset Details:**
-- **Source**: [Canadian Institute for Cybersecurity (CIC)](https://www.unb.ca/cic/)
-- **Collection Period**: 10 days (Monday to Friday, with multiple weeks of data)
-- **Total Samples**: 2.8 million traffic flows
-- **Features**: 87 network characteristics extracted from traffic flows
+- **Collection Period**: Multiple days (Monday through Friday)
+- **Total Samples**: Thousands of traffic flows per day
+- **Features**: 82 network characteristics (after preprocessing)
 - **Attack Types**: 5 types of attacks plus benign traffic
 
 ### Traffic Classification
@@ -34,39 +33,50 @@ The system classifies network traffic into 6 categories:
 - **R2L**: Remote to Local attacks
 - **U2R**: User to Root escalation attacks
 
-Each sample contains 87 network features extracted from traffic flows, including:
-- Forward and backward packet information (count, size, rate)
-- Connection duration and timeout statistics
-- TCP flag counts and protocol flags
-- Flow entropy and length metrics
+Each sample contains 82 network features extracted from traffic flows after removing non-predictive columns like Flow ID, Source/Destination IP, and Timestamp.
 
-## Models Trained
+## Machine Learning Model
 
-1. **Logistic Regression** - Fast, interpretable linear model
-2. **Random Forest** - Ensemble with 100 decision trees
-3. **Support Vector Machine (SVM)** - Non-linear kernel (RBF)
-4. **Naive Bayes** - Probabilistic classifier
+**Random Forest Classifier**
+- **Estimators**: 200 decision trees
+- **Max Depth**: 25
+- **Feature Strategy**: sqrt (reduce tree correlation)
+- **Class Weights**: Balanced (handle class imbalance)
+- **Optimization**: Stratified train/test split (80/20)
 
 ## Project Structure
 
 ```
-intrusion-detection/
+multiclass-attack-classifier/
 ├── data/
-│   ├── raw/                      # Original CSV files (10 days of data)
+│   ├── raw/                      # Original CSV files
+│   │   ├── monday.csv
+│   │   ├── friday.csv
+│   │   ├── tuesday.csv
+│   │   ├── wednesday.csv
+│   │   ├── thursday.csv
+│   │   └── *_plus.csv            # Extended datasets
 │   └── processed/                # Clean, normalized data + preprocessing objects
-├── models/                       # Trained ML models (pickle format)
+│       ├── *_X.csv               # Features
+│       ├── *_y.csv               # Labels
+│       └── *_scaler.pkl          # StandardScaler objects
+├── models/                       # Trained ML models (joblib format)
+│   ├── random_forest_model.joblib
+│   └── feature_scaler.joblib
 ├── src/
 │   ├── data_preprocessing.py     # Clean, normalize, and prepare data
-│   ├── train.py                  # Train 4 ML models
+│   ├── train.py                  # Train Random Forest model
 │   ├── evaluate.py               # Evaluate model performance
-│   ├── predict.py                # Make predictions on new data
-│   ├── demo_preprocessing.py     # Demo: 6-row preprocessing walkthrough
-│   └── demo_train.py             # Demo: Training with 50 sample rows
+│   └── predict.py                # Make predictions on new data
 ├── app/
 │   ├── app.py                    # FastAPI backend with REST endpoints
 │   ├── streamlit_app.py          # Streamlit web interface
 │   └── README.md                 # Web application documentation
-├── notebooks/                    # Jupyter notebooks (optional)
+├── notebooks/
+│   └── EDA.ipynb                 # Exploratory Data Analysis
+├── reports/
+│   ├── evaluation_report.txt     # Model evaluation metrics
+│   └── predictions_sample.csv    # Sample predictions
 ├── requirements.txt              # Python dependencies
 ├── README.md                     # This file
 ├── .gitignore                    # Git ignore rules
@@ -77,8 +87,8 @@ intrusion-detection/
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/thugscode/intrusion-detection.git
-cd intrusion-detection
+git clone https://github.com/yourusername/multiclass-attack-classifier.git
+cd multiclass-attack-classifier
 ```
 
 2. Create virtual environment:
@@ -102,33 +112,30 @@ python3 data_preprocessing.py
 ```
 
 Output files saved to `data/processed/`:
-- `{filename}_X.csv` - Features
-- `{filename}_y.csv` - Labels
+- `{filename}_X.csv` - Features (82 columns)
+- `{filename}_y.csv` - Labels (attack types)
 - `{filename}_scaler.pkl` - StandardScaler object
-- `{filename}_label_encoder.pkl` - LabelEncoder object
 
-### 2. Train Models
-Train all 4 models on preprocessed data:
+### 2. Train Model
+Train Random Forest model on preprocessed data:
 ```bash
 python3 train.py
 ```
 
 Models saved to `models/`:
-- `logistic_regression_model.pkl`
-- `random_forest_model.pkl`
-- `svm_model.pkl`
-- `naive_bayes_model.pkl`
+- `random_forest_model.joblib` - Trained classifier
+- `feature_scaler.joblib` - Feature scaler
 
-### 3. Evaluate Models
-Evaluate trained models and compare performance:
+### 3. Evaluate Model
+Evaluate trained model and view performance metrics:
 ```bash
 python3 evaluate.py
 ```
 
 Displays:
-- Accuracy, Precision, Recall, F1-Score for each model
-- Confusion matrices
-- Detailed classification reports
+- Accuracy, Precision, Recall, F1-Score
+- Confusion matrix
+- Detailed classification report
 
 ### 4. Make Predictions
 Predict on new network traffic data:
@@ -136,118 +143,198 @@ Predict on new network traffic data:
 python3 predict.py
 ```
 
-## Demo Scripts
+## Web Application
 
-### See Data Preprocessing Steps (6 rows)
+### Run FastAPI Backend
 ```bash
-python3 demo_preprocessing.py
+cd app
+python3 -m uvicorn app:app --reload
 ```
 
-Shows complete transformation:
-1. Original raw data
-2. After removing duplicates/NaN
-3. After removing irrelevant columns
-4. After label encoding
-5. After feature scaling
+API will be available at: `http://localhost:8000`
+- API documentation: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
-### See Training Process (50 rows)
+### Run Streamlit Frontend
 ```bash
-python3 demo_train.py
+streamlit run streamlit_app.py
 ```
 
-Shows all 4 models training and evaluation metrics.
+Web UI will be available at: `http://localhost:8501`
 
-## Quick Start Example
+## API Endpoints
 
-```python
-from predict import IntrusionDetectionPredictor
-import pandas as pd
-
-# Initialize predictor
-predictor = IntrusionDetectionPredictor(
-    models_folder='../models',
-    scaler_path='../data/processed/friday_scaler.pkl',
-    encoder_path='../data/processed/friday_label_encoder.pkl'
-)
-
-# Load test data (87 features)
-X_test = pd.read_csv('../data/processed/friday_X.csv').values
-
-# Make prediction
-result = predictor.predict_single_sample(X_test[0])
-print(f"Prediction: {result['prediction']}")
-print(f"Confidence: {result['confidence']:.2%}")
+### Single Prediction
+**POST** `/predict`
+```json
+{
+  "features": [1.0, 2.0, 3.0, ..., 82_values]
+}
 ```
+Returns: `{"prediction": "DoS", "confidence": 0.95, "model_used": "Random Forest"}`
 
-## File Descriptions
+### Batch Prediction
+**POST** `/predict-batch`
+```json
+{
+  "samples": [[82 features], [82 features], ...]
+}
+```
+Returns: Predictions with statistics (benign count, attack count, etc.)
+
+### CSV Upload
+**POST** `/predict-csv`
+Upload a CSV file with 82 columns (network features)
+
+### Health Check
+**GET** `/health`
+Returns: Status of model and scaler
+
+### Model Information
+**GET** `/models/compare`
+Returns: Details about loaded models
+
+### Feature Information
+**GET** `/features/info`
+Returns: Expected features and preprocessing details
+
+## Module Descriptions
 
 ### data_preprocessing.py
-- Loads raw CSV files from `data/raw/`
-- Removes duplicates, NaN, infinite values
-- Encodes text labels to numeric
-- Scales features using StandardScaler
-- Saves processed data and preprocessing objects
+Handles complete data preprocessing pipeline:
+- Load raw CSV files
+- Remove duplicates, NaN, and infinite values
+- Drop irrelevant columns (IPs, timestamps, etc.)
+- Encode categorical labels
+- Scale features using StandardScaler
+- Save processed data and preprocessing objects
 
 **Key Functions:**
-- `process_all_files()` - Batch process all CSV files
-- `preprocess_pipeline()` - Single file preprocessing
+- `load_data()` - Load CSV into DataFrame
+- `clean_data()` - Remove bad records
+- `remove_irrelevant_columns()` - Drop non-predictive columns
+- `encode_labels()` - Convert text labels to numeric
+- `scale_features()` - Normalize features
+- `preprocess_pipeline()` - Orchestrate all steps
+- `process_all_files()` - Batch process multiple files
 
 ### train.py
-- Loads preprocessed data
-- Splits into 80% train, 20% test (stratified)
-- Trains 4 different ML models
-- Saves models to pickle files
+Training pipeline for Random Forest model:
+- Load preprocessed data
+- Split into train/test sets (80/20 stratified)
+- Train Random Forest with optimized hyperparameters
+- Evaluate on test set
+- Save model and scaler
 
-**Key Class:**
-- `IntrusionDetectionTrainer` - Handles training pipeline
+**Key Functions:**
+- `load_preprocessed_data()` - Load features and labels
+- `train_random_forest()` - Train and evaluate model
+- `save_model()` - Save model and scaler to disk
 
 ### evaluate.py
-- Loads trained models and test data
-- Calculates accuracy, precision, recall, F1-score
-- Displays confusion matrix analysis
-- Generates detailed classification reports
+Model evaluation and analysis:
+- Load trained model and test data
+- Calculate multiple metrics (accuracy, precision, recall, F1)
+- Generate confusion matrix
+- Create detailed classification reports
+- Save evaluation report
 
-**Key Class:**
-- `ModelEvaluator` - Handles evaluation pipeline
+**Key Functions:**
+- `load_model_and_data()` - Load model and test data
+- `evaluate_model()` - Calculate performance metrics
+- `generate_report()` - Create detailed evaluation report
+- `save_evaluation_report()` - Save results to file
 
 ### predict.py
-- Loads trained models and preprocessing objects
-- Makes predictions on new data
-- Supports single sample and batch predictions
-- Returns predictions with confidence scores
+Inference pipeline for making predictions:
+- Load trained model and scaler
+- Preprocess new data (convert DataFrame to numpy, scale)
+- Make predictions with confidence scores
+- Support single and batch predictions
+- Handle different input formats
 
-**Key Class:**
-- `IntrusionDetectionPredictor` - Handles inference pipeline
+**Key Functions:**
+- `load_model_and_scaler()` - Load trained objects
+- `preprocess_input()` - Scale input data
+- `predict_single()` - Predict single sample
+- `predict_batch()` - Predict multiple samples
+- `predict_with_confidence()` - Get predictions with probabilities
+- `predict_traffic_flow()` - Predict network flow
+- `batch_prediction_from_csv()` - Batch predict from CSV
 
 ## Performance Metrics
 
-The system evaluates models using:
-- **Accuracy** - Overall correctness
-- **Precision** - True positives among predicted positives
-- **Recall** - True positives among actual positives
+The system evaluates model performance using:
+- **Accuracy** - Overall correctness across all classes
+- **Precision** - True positives among predicted positives (per class)
+- **Recall** - True positives among actual positives (per class)
 - **F1-Score** - Harmonic mean of precision and recall
-- **Confusion Matrix** - Breakdown of TP, TN, FP, FN
+- **Confusion Matrix** - Breakdown of TP, TN, FP, FN for each class
+- **Support** - Number of samples in each class
 
-## Data Flow
+## Data Pipeline
 
 ```
-Raw CSV Files (87 features)
+Raw CSV Files (with metadata columns)
         ↓
 data_preprocessing.py
         ↓
-Processed Data + Scaler + Encoder
+Clean Data (remove duplicates, NaN, infinite values)
+        ↓
+Remove Irrelevant Columns (IPs, timestamps, identifiers)
+        ↓
+Encode Labels (text → numeric)
+        ↓
+Scale Features (StandardScaler: mean=0, std=1)
+        ↓
+Processed Data (82 features) + Scaler Object
         ↓
 train.py
         ↓
-Trained Models (4 algorithms)
+Trained Random Forest Model
         ↓
-evaluate.py → Model Metrics
-predict.py  → Predictions
+evaluate.py → Model Metrics & Reports
+predict.py  → Make Predictions on New Data
+app.py      → REST API Endpoints
+streamlit_app.py → Interactive Web UI
 ```
 
-## Web Application
+## Key Features
 
-The project includes a web application with both FastAPI backend and Streamlit frontend for interactive predictions and visualization.
+✅ **Automated Data Preprocessing**: Complete cleaning and normalization pipeline  
+✅ **Multi-class Classification**: Detect 6 different traffic types  
+✅ **High Performance**: Random Forest with 200 trees  
+✅ **Confidence Scores**: Get prediction probability for uncertainty assessment  
+✅ **Batch Processing**: Predict on multiple samples efficiently  
+✅ **REST API**: FastAPI for programmatic access  
+✅ **Web Interface**: Streamlit UI for interactive predictions  
+✅ **Detailed Reports**: Comprehensive evaluation metrics and visualizations  
+
+## Requirements
+
+- Python 3.8+
+- pandas, numpy, scikit-learn (data and ML)
+- joblib (model serialization)
+- fastapi, uvicorn (REST API)
+- streamlit, plotly (web interface)
+- requests (API client)
+
+See `requirements.txt` for exact versions.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Author
+
+Network Intrusion Detection System Project  
+Built with Python, scikit-learn, FastAPI, and Streamlit
+
+## Acknowledgments
+
+- Dataset collection and preprocessing techniques inspired by industry best practices
+- Random Forest hyperparameters optimized for network intrusion detection
+- Web interface built with modern Python web frameworks
 
 ### Streamlit Pages
 - **Home** - System overview and information
